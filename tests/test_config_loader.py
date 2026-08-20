@@ -10,7 +10,7 @@ from pydantic import AliasChoices, Field, ValidationError
 from pydantic.fields import FieldInfo
 
 from strix.config import loader
-from strix.config.settings import ContextSettings
+from strix.config.settings import ContextSettings, LlmSettings
 
 
 if TYPE_CHECKING:
@@ -54,6 +54,12 @@ def _reset_loader_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_read_json_overrides_missing_file(tmp_path: Path) -> None:
     assert loader._read_json_overrides(tmp_path / "nope.json") == {}
+
+
+def test_local_fork_uses_ollama_defaults() -> None:
+    settings = LlmSettings()
+    assert settings.model == "ollama/qwen3.8:27b"
+    assert settings.api_base == "http://127.0.0.1:11434"
 
 
 def test_read_json_overrides_corrupt_json(tmp_path: Path) -> None:

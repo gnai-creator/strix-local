@@ -124,6 +124,8 @@ def test_setup_restores_prepared_cli_targets() -> None:
 
 @pytest.mark.asyncio
 async def test_start_validates_model_before_callback() -> None:
+    os.environ["STRIX_LLM"] = ""
+    loader._cached = None
     started = False
 
     async def start(_verify: bool = True) -> None:

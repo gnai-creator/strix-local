@@ -22,14 +22,15 @@ _BASE_CONFIG = SettingsConfigDict(
 class LlmSettings(BaseSettings):
     model_config = _BASE_CONFIG
 
-    model: str | None = Field(default=None, alias="STRIX_LLM")
+    # This fork is local-first: run through Ollama unless explicitly overridden.
+    model: str | None = Field(default="ollama/qwen3.8:27b", alias="STRIX_LLM")
     api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("LLM_API_KEY", "OPENAI_API_KEY"),
         repr=False,
     )
     api_base: str | None = Field(
-        default=None,
+        default="http://127.0.0.1:11434",
         validation_alias=AliasChoices(
             "LLM_API_BASE",
             "OPENAI_API_BASE",
