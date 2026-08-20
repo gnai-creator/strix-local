@@ -29,6 +29,15 @@ def _tool_output() -> dict[str, Any]:
     return {"type": "function_call_output", "call_id": "call_1", "output": "ok"}
 
 
+def _tool_call(arguments: str) -> dict[str, Any]:
+    return {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "list_reports",
+        "arguments": arguments,
+    }
+
+
 def test_adds_user_continuation_after_tool_output() -> None:
     original = [_user("start"), _tool_output()]
 
@@ -48,6 +57,27 @@ def test_adds_user_continuation_after_tool_output() -> None:
     ],
 )
 def test_leaves_ordinary_inputs_unchanged(original: Any) -> None:
+    assert _ollama_continuation_input(original) is original
+
+
+def test_repairs_invalid_historical_tool_arguments() -> None:
+    original = [
+        _user("start"),
+        _tool_call('{"target":"one"}{"target":"two"}'),
+        _tool_output(),
+        _user("Continue from the tool results above."),
+    ]
+
+    normalized = _ollama_continuation_input(original)
+
+    assert normalized is not original
+    assert normalized[1] == _tool_call("{}")
+    assert normalized[2:] == original[2:]
+
+
+def test_preserves_valid_historical_tool_arguments() -> None:
+    original = [_user("start"), _tool_call('{"target":"one"}')]
+
     assert _ollama_continuation_input(original) is original
 
 

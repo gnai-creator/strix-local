@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import json
 import logging
 import os
 import time
@@ -265,13 +266,25 @@ def _ollama_continuation_input(
         return model_input
     latest_tool = -1
     latest_user = -1
-    for index, item in enumerate(model_input):
+    changed = False
+    normalized: list[TResponseInputItem] = []
+    for index, original_item in enumerate(model_input):
+        item = original_item
+        if _item_field(item, "type") == "function_call":
+            arguments = _item_field(item, "arguments")
+            if isinstance(arguments, str):
+                try:
+                    json.loads(arguments)
+                except (json.JSONDecodeError, TypeError):
+                    item = cast("TResponseInputItem", {**item, "arguments": "{}"})
+                    changed = True
+        normalized.append(item)
         if _item_field(item, "type") == "function_call_output":
             latest_tool = index
         if _item_field(item, "type") == "message" and _item_field(item, "role") == "user":
             latest_user = index
     if latest_tool < 0 or latest_user > latest_tool:
-        return model_input
+        return normalized if changed else model_input
     continuation = cast(
         "TResponseInputItem",
         {
@@ -280,7 +293,7 @@ def _ollama_continuation_input(
             "content": [{"type": "input_text", "text": _OLLAMA_CONTINUATION_TEXT}],
         },
     )
-    return [*model_input, continuation]
+    return [*normalized, continuation]
 
 
 class _OllamaContinuationModel(Model):
