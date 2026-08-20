@@ -242,6 +242,114 @@ class _NonStreamingModel(Model):
         yield _completed_stream_event(response, getattr(self._inner, "model", None))
 
 
+_OLLAMA_CONTINUATION_TEXT = "Continue from the tool results above."
+
+
+def _item_field(item: Any, name: str) -> Any:
+    return item.get(name) if isinstance(item, dict) else getattr(item, name, None)
+
+
+def _ollama_continuation_input(
+    model_input: str | list[TResponseInputItem],
+) -> str | list[TResponseInputItem]:
+    """Give Ollama chat templates a user turn after tool output.
+
+    Some Ollama model templates, including qwen3.8, reject a continuation whose
+    newest conversational item is a tool result with ``no user query found in
+    messages``. OpenAI-style agent loops legitimately send exactly that shape.
+    Add a neutral user continuation only when a tool result is newer than the
+    latest user message; ordinary user turns and providers other than Ollama
+    remain untouched.
+    """
+    if isinstance(model_input, str):
+        return model_input
+    latest_tool = -1
+    latest_user = -1
+    for index, item in enumerate(model_input):
+        if _item_field(item, "type") == "function_call_output":
+            latest_tool = index
+        if _item_field(item, "type") == "message" and _item_field(item, "role") == "user":
+            latest_user = index
+    if latest_tool < 0 or latest_user > latest_tool:
+        return model_input
+    continuation = cast(
+        "TResponseInputItem",
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": _OLLAMA_CONTINUATION_TEXT}],
+        },
+    )
+    return [*model_input, continuation]
+
+
+class _OllamaContinuationModel(Model):
+    """Normalize tool-result continuations for Ollama chat templates."""
+
+    def __init__(self, inner: Model) -> None:
+        self._inner = inner
+
+    async def close(self) -> None:
+        await self._inner.close()
+
+    def get_retry_advice(self, request: ModelRetryAdviceRequest) -> ModelRetryAdvice | None:
+        return self._inner.get_retry_advice(request)
+
+    async def get_response(
+        self,
+        system_instructions: str | None,
+        input: str | list[TResponseInputItem],  # noqa: A002
+        model_settings: ModelSettings,
+        tools: list[Tool],
+        output_schema: AgentOutputSchemaBase | None,
+        handoffs: list[Handoff],
+        tracing: ModelTracing,
+        *,
+        previous_response_id: str | None,
+        conversation_id: str | None,
+        prompt: ResponsePromptParam | None,
+    ) -> ModelResponse:
+        return await self._inner.get_response(
+            system_instructions,
+            _ollama_continuation_input(input),
+            model_settings,
+            tools,
+            output_schema,
+            handoffs,
+            tracing,
+            previous_response_id=previous_response_id,
+            conversation_id=conversation_id,
+            prompt=prompt,
+        )
+
+    def stream_response(
+        self,
+        system_instructions: str | None,
+        input: str | list[TResponseInputItem],  # noqa: A002
+        model_settings: ModelSettings,
+        tools: list[Tool],
+        output_schema: AgentOutputSchemaBase | None,
+        handoffs: list[Handoff],
+        tracing: ModelTracing,
+        *,
+        previous_response_id: str | None,
+        conversation_id: str | None,
+        prompt: ResponsePromptParam | None,
+    ) -> AsyncIterator[TResponseStreamEvent]:
+        return self._inner.stream_response(
+            system_instructions,
+            _ollama_continuation_input(input),
+            model_settings,
+            tools,
+            output_schema,
+            handoffs,
+            tracing,
+            previous_response_id=previous_response_id,
+            conversation_id=conversation_id,
+            prompt=prompt,
+        )
+
+
 class _TurnGuardModel(Model):
     """Keep one turn from corrupting the conversation or running away.
 
@@ -483,6 +591,9 @@ class StrixProvider(MultiProvider):
             )
         else:
             model = super().get_model(model_name)
+            normalized_model = (model_name or "").lower()
+            if normalized_model.startswith(("ollama/", "ollama_chat/")):
+                model = _OllamaContinuationModel(model)
             if llm.disable_streaming:
                 model = _NonStreamingModel(model)
                 # The wrapper emits its single event only once the whole request
