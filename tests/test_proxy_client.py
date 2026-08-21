@@ -46,6 +46,7 @@ class _FakeSitemapClient:
 class _FakeRequestListBuilder:
     def __init__(self) -> None:
         self.scope_id: str | None = None
+        self.after_cursor: str | None = None
 
     def first(self, _first: int) -> _FakeRequestListBuilder:
         return self
@@ -53,7 +54,8 @@ class _FakeRequestListBuilder:
     def filter(self, _filter: str) -> _FakeRequestListBuilder:
         return self
 
-    def after(self, _after: str) -> _FakeRequestListBuilder:
+    def after(self, after: str) -> _FakeRequestListBuilder:
+        self.after_cursor = after
         return self
 
     def scope(self, scope_id: str) -> _FakeRequestListBuilder:
@@ -274,15 +276,16 @@ async def test_list_sitemap_normalizes_empty_scope_id_to_null() -> None:
     assert client.graphql.variables == {"scopeId": None}
 
 
-async def test_list_requests_normalizes_string_null_scope_id() -> None:
+async def test_list_requests_normalizes_string_null_optional_arguments() -> None:
     client = _FakeRequestsClient()
 
     result = await caido_api.list_requests_with_client(
-        cast("Any", client), scope_id="null"
+        cast("Any", client), scope_id="null", after="null"
     )
 
     assert result == "ok"
     assert client.request.builder.scope_id is None
+    assert client.request.builder.after_cursor is None
 
 
 @pytest.mark.parametrize("value", ["", "  ", "null", "None", "UNDEFINED"])
@@ -293,3 +296,7 @@ def test_normalize_optional_id_treats_llm_null_sentinels_as_none(value: str) -> 
 def test_normalize_optional_id_rejects_non_numeric_value() -> None:
     with pytest.raises(ValueError, match="integer-shaped Caido ID"):
         caido_api._normalize_optional_id("all", name="scope_id")
+
+
+def test_normalize_optional_string_preserves_real_cursor() -> None:
+    assert caido_api._normalize_optional_string(" cursor-value ") == "cursor-value"

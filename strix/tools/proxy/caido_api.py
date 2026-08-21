@@ -129,13 +129,21 @@ async def close_client() -> None:
     await client.aclose()
 
 
-def _normalize_optional_id(value: str | None, *, name: str) -> str | None:
-    """Normalize an optional Caido GraphQL ID emitted by an LLM tool call."""
+def _normalize_optional_string(value: str | None) -> str | None:
+    """Normalize an optional string emitted by an LLM tool call."""
     if value is None:
         return None
 
     normalized = value.strip()
     if not normalized or normalized.lower() in {"null", "none", "undefined"}:
+        return None
+    return normalized
+
+
+def _normalize_optional_id(value: str | None, *, name: str) -> str | None:
+    """Normalize and validate an optional Caido GraphQL ID."""
+    normalized = _normalize_optional_string(value)
+    if normalized is None:
         return None
 
     try:
@@ -158,6 +166,7 @@ async def list_requests_with_client(
     scope_id: str | None = None,
 ) -> Any:
     scope_id = _normalize_optional_id(scope_id, name="scope_id")
+    after = _normalize_optional_string(after)
     builder = client.request.list().first(first)
     if httpql_filter:
         builder = builder.filter(httpql_filter)
